@@ -3,16 +3,16 @@
 Proyecto Android inicial de CodeMarket para accesibilidad en Lengua de Señas Argentina (LSA).
 
 ## Estado real de esta versión
-- Modo Misa con inicio y detención de escucha.
-- Reconocimiento de voz en español mediante el servicio disponible en Android.
-- Transcripción visible en pantalla.
-- Selector de avatar femenino/masculino como preferencia visual.
-- La app informa claramente cuando una frase todavía no tiene una traducción LSA validada.
+- Modo Misa: escucha continua (se reinicia sola entre frases) con reconocimiento de voz en español (es-AR).
+- Avatar 3D animado (femenino/masculino) del torso superior; se gira arrastrando.
+- Motor de traducción: texto -> palabras/frases -> señas del léxico (`app/src/main/assets/lexicon_lsa.json`) -> animación por keyframes.
+- Cada palabra se marca como **LSA validada**, **animación de prueba** o **sin seña validada**. No se inventan señas.
+- Campo de texto para probar sin micrófono (probá la palabra `demo`).
 
-**Esta versión todavía NO traduce frases libres a LSA ni reproduce señas 3D animadas.** No se inventan señas. Para implementar esa etapa se necesita un corpus de LSA validado por personas sordas argentinas y especialistas, además de modelos y animaciones de señas.
+**Falta (requiere personas sordas / intérpretes de LSA):** el diccionario validado, manos con dedos, expresión facial y gramática propia de la LSA. Ver `docs/AGREGAR_SENAS.md`.
 
 ## Compilar
-El workflow está en `.github/workflows/build.yml`.
+El workflow está en `.github/workflows/main.yml`.
 1. Subí el contenido de este ZIP a la raíz del repositorio `codemarketmdz-maker/lsa3d-app`.
 2. Abrí la pestaña **Actions**.
 3. Elegí **Compilar LSA 3D app** y ejecutá el workflow, o esperá que se ejecute al subir los archivos.

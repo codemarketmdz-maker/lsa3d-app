@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -23,6 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -50,12 +55,16 @@ class MainActivity : ComponentActivity() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var onText: ((String) -> Unit)? = null
     private var onStatus: ((String) -> Unit)? = null
+    private var onFinal: ((String) -> Unit)? = null
+    private var keepListening = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val lexicon by lazy { Lexicon.load(this) }
 
     private val microphonePermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startListening()
-        else onStatus?.invoke("Se necesita permiso de micrófono para escuchar la misa.")
+        else { keepListening = false; onStatus?.invoke("Se necesita permiso de micrófono para escuchar la misa.") }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,10 +76,40 @@ class MainActivity : ComponentActivity() {
                 var listening by remember { mutableStateOf(false) }
                 var avatar by remember { mutableStateOf("Femenino") }
 
+                var items by remember { mutableStateOf<List<PlanItem>>(emptyList()) }
+                var timeline by remember { mutableStateOf<Timeline?>(null) }
+                var pose by remember { mutableStateOf(Pose.REST) }
+                var activeIdx by remember { mutableIntStateOf(-1) }
+                var typed by remember { mutableStateOf("") }
+
+                val translate: (String) -> Unit = { phrase ->
+                    val plan = Planner.plan(phrase, lexicon)
+                    items = plan
+                    timeline = if (plan.isEmpty()) null else Timeline.build(plan)
+                }
+
+                LaunchedEffect(timeline) {
+                    val tl = timeline
+                    if (tl != null) {
+                        val t0 = withFrameNanos { it }
+                        while (true) {
+                            val now = withFrameNanos { it }
+                            val t = (now - t0) / 1_000_000L
+                            if (t > tl.totalMs) break
+                            val (p, i) = tl.poseAt(t)
+                            pose = p
+                            activeIdx = i
+                        }
+                    }
+                    pose = Pose.REST
+                    activeIdx = -1
+                }
+
                 onText = { transcript = it }
+                onFinal = { phrase -> transcript = phrase; translate(phrase) }
                 onStatus = {
                     status = it
-                    listening = it == "Escuchando…"
+                    listening = keepListening
                 }
 
                 Surface(modifier = Modifier.fillMaxSize(), color = Pale) {
@@ -92,27 +131,15 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Text("MODO MISA", color = Teal, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Spacer(Modifier.height(14.dp))
-                                // Marcador visual provisional: no representa una animación ni una seña.
-                                androidx.compose.foundation.layout.Box(
+                                Avatar3D(
+                                    pose = pose,
+                                    female = avatar == "Femenino",
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(210.dp)
-                                        .background(Color(0xFFE8F1F4), RoundedCornerShape(20.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        androidx.compose.foundation.layout.Box(
-                                            modifier = Modifier
-                                                .background(Color(0xFFD3E5E9), CircleShape)
-                                                .padding(horizontal = 27.dp, vertical = 18.dp)
-                                        ) {
-                                            Text(if (avatar == "Femenino") "♀" else "♂", fontSize = 54.sp, color = Teal)
-                                        }
-                                        Spacer(Modifier.height(8.dp))
-                                        Text("Avatar $avatar", color = Ink, fontWeight = FontWeight.SemiBold)
-                                        Text("Modelo 3D en desarrollo", color = Muted, fontSize = 12.sp)
-                                    }
-                                }
+                                        .height(300.dp)
+                                        .background(Color(0xFFE8F1F4), RoundedCornerShape(20.dp))
+                                )
+                                Text("Arrastrá para girar la vista", color = Muted, fontSize = 11.sp)
                                 Spacer(Modifier.height(14.dp))
                                 Text("Elegí tu avatar", color = Ink, fontWeight = FontWeight.SemiBold)
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -127,8 +154,9 @@ class MainActivity : ComponentActivity() {
                                 Spacer(Modifier.height(18.dp))
                                 Button(
                                     onClick = {
-                                        if (listening) stopListening()
+                                        if (listening) { keepListening = false; stopListening() }
                                         else {
+                                            keepListening = true
                                             if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startListening()
                                             else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
                                         }
@@ -160,13 +188,39 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(14.dp))
                         Card(
                             modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color.White)
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("Traducción a señas", color = Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                                Spacer(Modifier.height(8.dp))
+                                if (items.isEmpty()) {
+                                    Text("Cuando se escuche una frase, cada palabra aparece acá indicando si tiene seña disponible.", color = Muted, fontSize = 13.sp)
+                                } else {
+                                    PlanChips(items, activeIdx)
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = typed,
+                                    onValueChange = { typed = it },
+                                    label = { Text("Probar escribiendo una frase (ej: demo)") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(onClick = { transcript = typed; translate(typed) }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Traducir texto")
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4DE))
                         ) {
                             Column(Modifier.padding(16.dp)) {
                                 Text("Estado de traducción LSA", color = Color(0xFF76551B), fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.height(5.dp))
                                 Text(
-                                    "La traducción automática a LSA y las señas animadas todavía no están implementadas. Esta versión solo transcribe el audio; no presenta la transcripción como si fuera una seña.",
+                                    "El motor de animación 3D funciona, pero el diccionario todavía no tiene señas LSA validadas por personas sordas. Las palabras sin seña se marcan como tales: la app no inventa señas. Ver docs/AGREGAR_SENAS.md.",
                                     color = Color(0xFF76551B),
                                     fontSize = 13.sp
                                 )
@@ -182,6 +236,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startListening() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            keepListening = false
             onStatus?.invoke("Este teléfono no tiene un servicio de reconocimiento de voz disponible.")
             return
         }
@@ -195,6 +250,12 @@ class MainActivity : ComponentActivity() {
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() { onStatus?.invoke("Procesando audio…") }
                     override fun onError(error: Int) {
+                        if (keepListening && (error == SpeechRecognizer.ERROR_NO_MATCH ||
+                                error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                                error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY)) {
+                            restartSoon(); return
+                        }
+                        keepListening = false
                         onStatus?.invoke(
                             when (error) {
                                 SpeechRecognizer.ERROR_NO_MATCH -> "No se reconocieron palabras. Podés volver a intentar."
@@ -206,8 +267,8 @@ class MainActivity : ComponentActivity() {
                     }
                     override fun onResults(results: Bundle?) {
                         val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                        if (!text.isNullOrBlank()) onText?.invoke(text)
-                        onStatus?.invoke("Transcripción recibida")
+                        if (!text.isNullOrBlank()) onFinal?.invoke(text)
+                        if (keepListening) restartSoon() else onStatus?.invoke("Transcripción recibida")
                     }
                     override fun onPartialResults(partialResults: Bundle?) {
                         val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
@@ -226,8 +287,14 @@ class MainActivity : ComponentActivity() {
             speechRecognizer?.startListening(intent)
             onStatus?.invoke("Iniciando micrófono…")
         }.onFailure {
+            keepListening = false
             onStatus?.invoke("No se pudo iniciar el reconocimiento de voz.")
         }
+    }
+
+    private fun restartSoon() {
+        onStatus?.invoke("Escuchando…")
+        handler.postDelayed({ if (keepListening) startListening() }, 400)
     }
 
     private fun stopListening() {
@@ -236,8 +303,32 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        keepListening = false
+        handler.removeCallbacksAndMessages(null)
         speechRecognizer?.destroy()
         speechRecognizer = null
         super.onDestroy()
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlanChips(items: List<PlanItem>, activeIdx: Int) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.forEachIndexed { i, item ->
+            val sign = item.sign
+            val (bg, label) = when {
+                sign == null -> Color(0xFFE6E9EE) to "${item.word} · sin seña validada"
+                sign.validated -> Color(0xFFD8F0DC) to "${item.word} · LSA validada"
+                else -> Color(0xFFFFE9B8) to "${item.word} · animación de prueba"
+            }
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .background(if (i == activeIdx) Teal else bg, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(label, fontSize = 12.sp, color = if (i == activeIdx) Color.White else Ink)
+            }
+        }
     }
 }

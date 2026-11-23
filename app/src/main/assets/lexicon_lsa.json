@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "nota": "Este léxico NO contiene señas LSA validadas. Solo hay una animación de prueba del motor (palabra 'demo'). Agregá señas con validated=true únicamente cuando las haya validado una persona sorda / intérprete de LSA. Ver docs/AGREGAR_SENAS.md",
+  "signs": [
+    {
+      "id": "demo-motor",
+      "words": ["demo"],
+      "validated": false,
+      "source": "Animación de prueba del motor 3D. NO es una seña de LSA.",
+      "keyframes": [
+        { "t": 0,    "pose": {} },
+        { "t": 500,  "pose": { "rPitch": 150, "rRoll": 20, "rElbow": 70 } },
+        { "t": 900,  "pose": { "rPitch": 150, "rRoll": 35, "rElbow": 40 } },
+        { "t": 1300, "pose": { "rPitch": 150, "rRoll": 15, "rElbow": 70 } },
+        { "t": 1800, "pose": {} }
+      ]
+    }
+  ]
+}
