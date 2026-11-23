@@ -12,6 +12,7 @@ jobs:
   build:
     name: Generar APK Android
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Descargar código
         uses: actions/checkout@v4
@@ -22,13 +23,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Configurar Android SDK preinstalado
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          command -v sdkmanager
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Configurar Android SDK (acepta licencias e instala plataforma 35)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
       - name: Instalar Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -36,12 +34,12 @@ jobs:
           gradle-version: "8.9"
 
       - name: Compilar APK debug
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
           name: LSA3DApp-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
